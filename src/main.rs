@@ -50,6 +50,7 @@ impl Object {
     }
 }
 
+// Windows
 #[cfg(target_os = "windows")]
 fn minecraft_dir() -> Option<PathBuf> {
     dirs::data_dir()
@@ -57,6 +58,7 @@ fn minecraft_dir() -> Option<PathBuf> {
         .filter(|path| path.is_dir())
 }
 
+// Mac
 #[cfg(target_os = "macos")]
 fn minecraft_dir() -> Option<PathBuf> {
     dirs::data_dir()
@@ -64,6 +66,7 @@ fn minecraft_dir() -> Option<PathBuf> {
         .filter(|path| path.is_dir())
 }
 
+// Linux
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn minecraft_dir() -> Option<PathBuf> {
     dirs::home_dir()
