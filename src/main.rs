@@ -1,8 +1,11 @@
 use clap::Parser;
+use crossterm::{cursor, QueueableCommand};
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::error::Error;
 use std::ffi::OsString;
 use std::fs;
+use std::io::{stdout, Write};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -31,26 +34,27 @@ struct IndexJson {
 #[derive(Deserialize)]
 struct Object {
     /// The hashed name of the file.
-    hash: String,
+    #[serde(rename = "hash")]
+    hashed_file: String,
     /// The size of the file in bytes.
+    #[serde(rename = "size")]
     _size: usize,
 }
 
 impl Object {
     /// Returns the name of the folder the hashed file is within inside the `objects` folder.
     pub fn parent_dir(&self) -> &str {
-        &self.hash[..2]
+        &self.hashed_file[..2]
     }
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn Error>> {
     let Args {
         input_directory,
         output_directory,
         version,
     } = Args::parse();
 
-    let input_directory = input_directory.to_path_buf();
     if !input_directory.is_dir() {
         panic!("Expected input to be a directory");
     }
@@ -83,17 +87,31 @@ fn main() {
             version_files.pop()
         })
         .map(|file_name| indexes_dir.join(file_name))
-        .and_then(|path| fs::read_to_string(path).ok())
-        .and_then(|contents| serde_json::from_str(&contents).ok())
+        .map(|path| fs::read_to_string(path).expect("Failed to read index file"))
+        .map(|contents| serde_json::from_str(&contents).expect("Failed to parse index file"))
         .expect("No index file found");
 
-    for (file_name, object) in indexes.objects {
-        let hashed_file_path = objects_dir.join(object.parent_dir()).join(object.hash);
+    let mut stdout = stdout();
+
+    let objects_len = indexes.objects.len();
+    for (i, (file_path, object)) in indexes.objects.iter().enumerate() {
+        let file_path = PathBuf::from(&file_path);
+        let file_name = file_path.display();
+
+        stdout.queue(cursor::SavePosition)?;
+        stdout.write_all(format!("Extracting {}/{objects_len}", i + 1).as_bytes())?;
+        stdout.queue(cursor::RestorePosition)?;
+
+        stdout.flush()?;
+
+        let hashed_file_path = objects_dir
+            .join(object.parent_dir())
+            .join(&object.hashed_file);
 
         // Read the hashed file
         match fs::read(hashed_file_path) {
             Ok(contents) => {
-                let output_file = output_directory.join(&file_name);
+                let output_file = output_directory.join(&file_path);
 
                 // Fill in parent directories of the file, since Windows doesn't do that.
                 if let Some(Err(error)) = output_file.parent().map(fs::create_dir_all) {
@@ -109,4 +127,6 @@ fn main() {
             Err(error) => eprintln!("Skipping '{file_name}': failed to read hashed file: {error}"),
         }
     }
+
+    Ok(())
 }
