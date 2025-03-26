@@ -8,31 +8,44 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::{fs, io};
 
+/// Extracts hashed Minecraft assets.
+///
+/// Most Minecraft assets are located within a version's jar file (e.g.
+/// `.minecraft/versions/1.20.1.jar`), but certain assets (like sounds or
+/// non-US-English languages) are found in `.minecraft/assets/`, with hashed
+/// file names instead of their file path within Minecraft's assets. This tool
+/// extracts all those hashed files based on the file path they should have.
 #[derive(Parser)]
-struct Args {
+struct ExtractCommand {
     /// The path to the `.minecraft/assets` directory to extract assets from.
     ///
     /// Defaults to the default `.minecraft/assets` folder location on your OS.
-    input_directory: Option<PathBuf>,
-    /// The path to the `assets` directory to extract assets to (not the `minecraft` folder inside).
+    #[arg(value_name = "ASSETS DIRECTORY")]
+    input_dir: Option<PathBuf>,
+    /// The path to the `assets` directory into which to extract assets.
     ///
     /// Defaults to the current directory.
-    #[arg(short, long = "output")]
-    output_directory: Option<PathBuf>,
+    ///
+    /// Note that this shouldn't be the `minecraft` folder inside `assets`.
+    #[arg(short, long = "output", value_name = "DIRECTORY")]
+    output_dir: Option<PathBuf>,
 
     /// The version file in `indexes` to use (without the `.json` suffix).
     ///
-    /// Defaults to the last file in the `indexes` folder (which is OS- and filesystem-dependent).
-    #[arg(short, long)]
-    version: Option<OsString>,
+    /// Defaults to the last file in the `indexes` folder (which is OS- and
+    /// filesystem-dependent).
+    #[arg(short, long, value_name = "VERSION")]
+    index_version: Option<OsString>,
 }
 
+/// Represents the contents of an index file in `.minecraft/assets/indexes`.
 #[derive(Deserialize)]
 struct IndexJson {
+    /// A map of file paths within `assets` and the associated [`Object`].
     objects: HashMap<String, Object>,
 }
 
-/// The hashed name of a file and its size.
+/// Information about a hashed file.
 #[derive(Deserialize)]
 struct Object {
     /// The hashed name of the file.
@@ -45,6 +58,9 @@ struct Object {
 
 impl Object {
     /// Returns the name of the folder the hashed file is within inside the `objects` folder.
+    ///
+    /// The name of that folder will be the same as the first two characters of
+    /// [the hashed file's name](#field.hashed_file).
     pub fn parent_dir(&self) -> &str {
         &self.hashed_file[..2]
     }
@@ -75,25 +91,25 @@ fn minecraft_dir() -> Option<PathBuf> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let Args {
-        input_directory,
-        output_directory,
-        version,
-    } = Args::parse();
+    let ExtractCommand {
+        input_dir,
+        output_dir,
+        index_version,
+    } = ExtractCommand::parse();
 
-    let input_directory = input_directory
+    let input_dir = input_dir
         .or_else(|| minecraft_dir().map(|path| path.join("assets")))
         .filter(|path| path.is_dir())
         .expect("No input directory found");
-    let output_directory = output_directory
+    let output_dir = output_dir
         .or_else(|| std::env::current_dir().ok())
         .filter(|path| path.is_dir())
         .expect("No output directory found");
 
-    let indexes_dir = input_directory.join("indexes");
-    let objects_dir = input_directory.join("objects");
+    let indexes_dir = input_dir.join("indexes");
+    let objects_dir = input_dir.join("objects");
 
-    let indexes: IndexJson = version
+    let indexes: IndexJson = index_version
         .map(|mut version| {
             version.push(".json");
 
@@ -137,7 +153,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // Read the hashed file
         match fs::read(hashed_file_path) {
             Ok(contents) => {
-                let output_file = output_directory.join(&file_path);
+                let output_file = output_dir.join(&file_path);
 
                 // Fill in parent directories of the file, since Windows doesn't do that.
                 if let Some(Err(error)) = output_file.parent().map(fs::create_dir_all) {
