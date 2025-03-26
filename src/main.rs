@@ -10,8 +10,10 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 struct Args {
-    /// The path to the `.minecraft/assets` directory to extract assets from
-    input_directory: PathBuf,
+    /// The path to the `.minecraft/assets` directory to extract assets from.
+    ///
+    /// Defaults to the default `.minecraft/assets` folder location on your OS.
+    input_directory: Option<PathBuf>,
     /// The path to the `assets` directory to extract assets to (not the `minecraft` folder inside).
     ///
     /// Defaults to the current directory.
@@ -48,6 +50,27 @@ impl Object {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn minecraft_dir() -> Option<PathBuf> {
+    dirs::data_dir()
+        .map(|path| path.join(".minecraft"))
+        .filter(|path| path.is_dir())
+}
+
+#[cfg(target_os = "macos")]
+fn minecraft_dir() -> Option<PathBuf> {
+    dirs::data_dir()
+        .map(|path| path.join("minecraft"))
+        .filter(|path| path.is_dir())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn minecraft_dir() -> Option<PathBuf> {
+    dirs::data_dir()
+        .map(|path| path.join(".minecraft"))
+        .filter(|path| path.is_dir())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let Args {
         input_directory,
@@ -55,16 +78,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         version,
     } = Args::parse();
 
-    if !input_directory.is_dir() {
-        panic!("Expected input to be a directory");
-    }
-
+    let input_directory = input_directory
+        .or_else(|| minecraft_dir().map(|path| path.join("assets")))
+        .filter(|path| path.is_dir())
+        .expect("No input directory found");
     let output_directory = output_directory
         .or_else(|| std::env::current_dir().ok())
+        .filter(|path| path.is_dir())
         .expect("No output directory found");
-    if !output_directory.is_dir() {
-        panic!("Expected output to be a directory");
-    }
 
     let indexes_dir = input_directory.join("indexes");
     let objects_dir = input_directory.join("objects");
