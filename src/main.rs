@@ -6,7 +6,7 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::PathBuf;
-use std::{fs, io};
+use std::{env, fs, io};
 
 /// Extracts hashed Minecraft assets.
 ///
@@ -40,7 +40,7 @@ struct ExtractCommand {
 
 /// Represents the contents of an index file in `.minecraft/assets/indexes`.
 #[derive(Deserialize)]
-struct IndexJson {
+struct IndexFile {
     /// A map of file paths within `assets` and the associated [`Object`].
     objects: HashMap<PathBuf, Object>,
 }
@@ -72,6 +72,7 @@ impl Object {
 }
 
 // Windows
+/// Returns the default location of the `.minecraft` directory.
 #[cfg(target_os = "windows")]
 fn minecraft_dir() -> Option<PathBuf> {
     dirs::data_dir()
@@ -80,6 +81,7 @@ fn minecraft_dir() -> Option<PathBuf> {
 }
 
 // Mac
+/// Returns the default location of the `minecraft` directory.
 #[cfg(target_os = "macos")]
 fn minecraft_dir() -> Option<PathBuf> {
     dirs::data_dir()
@@ -88,6 +90,7 @@ fn minecraft_dir() -> Option<PathBuf> {
 }
 
 // Linux
+/// Returns the default location of the `.minecraft` directory.
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn minecraft_dir() -> Option<PathBuf> {
     dirs::home_dir()
@@ -107,39 +110,36 @@ fn main() -> Result<(), Box<dyn Error>> {
         .filter(|path| path.is_dir())
         .expect("No input directory found");
     let output_dir = output_dir
-        .or_else(|| std::env::current_dir().ok())
+        .or_else(|| env::current_dir().ok())
         .filter(|path| path.is_dir())
         .expect("No output directory found");
 
     let indexes_dir = input_dir.join("indexes");
     let objects_dir = input_dir.join("objects");
 
-    let indexes: IndexJson = index_version
+    let index: IndexFile = index_version
         .map(|mut version| {
             version.push(".json");
-
             version
         })
         .or_else(|| {
-            let mut version_files: Vec<_> = indexes_dir
+            // Use the last version file
+            indexes_dir
                 .read_dir()
                 .expect("Failed to read indexes")
                 .filter_map(Result::ok)
                 .map(|entry| entry.file_name())
-                .collect();
-
-            // Use the last version file
-            version_files.pop()
+                .last()
         })
-        .map(|file_name| indexes_dir.join(file_name))
-        .map(|path| fs::read_to_string(path).expect("Failed to read index file"))
+        .map(|file_name| indexes_dir.join(&file_name))
+        .map(|path| fs::read_to_string(&path).expect("Failed to read index file"))
         .map(|contents| serde_json::from_str(&contents).expect("Failed to parse index file"))
         .expect("No index file found");
-    let objects_len = indexes.objects.len();
+    let objects_len = index.objects.len();
 
     let mut stdout = io::stdout();
 
-    for (i, (file_path, object)) in indexes.objects.iter().enumerate() {
+    for (i, (file_path, object)) in index.objects.iter().enumerate() {
         let file_name = file_path.display();
 
         // Print extraction progress (overwriting the previous progress message)
@@ -150,10 +150,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         stdout.flush()?;
 
-        let hashed_file_path = objects_dir.join(object.hashed_file_path());
-
         // Read the hashed file
-        match fs::read(hashed_file_path) {
+        match fs::read(objects_dir.join(object.hashed_file_path())) {
             Ok(contents) => {
                 let output_file = output_dir.join(&file_path);
 
