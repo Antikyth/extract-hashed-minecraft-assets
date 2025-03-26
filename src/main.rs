@@ -42,7 +42,7 @@ struct ExtractCommand {
 #[derive(Deserialize)]
 struct IndexJson {
     /// A map of file paths within `assets` and the associated [`Object`].
-    objects: HashMap<String, Object>,
+    objects: HashMap<PathBuf, Object>,
 }
 
 /// Information about a hashed file.
@@ -50,7 +50,7 @@ struct IndexJson {
 struct Object {
     /// The hashed name of the file.
     #[serde(rename = "hash")]
-    hashed_file: String,
+    hashed_file_name: String,
     /// The size of the file in bytes.
     #[serde(rename = "size")]
     _size: usize,
@@ -62,7 +62,12 @@ impl Object {
     /// The name of that folder will be the same as the first two characters of
     /// [the hashed file's name](#field.hashed_file).
     pub fn parent_dir(&self) -> &str {
-        &self.hashed_file[..2]
+        &self.hashed_file_name[..2]
+    }
+
+    /// Returns the path to the hashed file within the `objects` folder.
+    pub fn hashed_file_path(&self) -> PathBuf {
+        [self.parent_dir(), &self.hashed_file_name].iter().collect()
     }
 }
 
@@ -135,7 +140,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut stdout = io::stdout();
 
     for (i, (file_path, object)) in indexes.objects.iter().enumerate() {
-        let file_path = PathBuf::from(&file_path);
         let file_name = file_path.display();
 
         // Print extraction progress (overwriting the previous progress message)
@@ -146,9 +150,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         stdout.flush()?;
 
-        let hashed_file_path = objects_dir
-            .join(object.parent_dir())
-            .join(&object.hashed_file);
+        let hashed_file_path = objects_dir.join(object.hashed_file_path());
 
         // Read the hashed file
         match fs::read(hashed_file_path) {
