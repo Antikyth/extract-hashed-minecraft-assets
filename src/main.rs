@@ -4,9 +4,9 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::error::Error;
 use std::ffi::OsString;
-use std::fs;
-use std::io::{stdout, Write};
+use std::io::Write;
 use std::path::PathBuf;
+use std::{fs, io};
 
 #[derive(Parser)]
 struct Args {
@@ -114,14 +114,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         .map(|path| fs::read_to_string(path).expect("Failed to read index file"))
         .map(|contents| serde_json::from_str(&contents).expect("Failed to parse index file"))
         .expect("No index file found");
-
-    let mut stdout = stdout();
-
     let objects_len = indexes.objects.len();
+
+    let mut stdout = io::stdout();
+
     for (i, (file_path, object)) in indexes.objects.iter().enumerate() {
         let file_path = PathBuf::from(&file_path);
         let file_name = file_path.display();
 
+        // Print extraction progress (overwriting the previous progress message)
+        // The cursor position is saved and restored to ensure it doesn't move all over the place.
         stdout.queue(cursor::SavePosition)?;
         stdout.write_all(format!("Extracting {}/{objects_len}", i + 1).as_bytes())?;
         stdout.queue(cursor::RestorePosition)?;
