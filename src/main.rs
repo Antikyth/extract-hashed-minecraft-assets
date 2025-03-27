@@ -1,12 +1,11 @@
-use clap::Parser;
-use crossterm::{cursor, QueueableCommand};
-use serde::Deserialize;
-use std::collections::HashMap;
+mod hashed;
+mod jar;
+mod util;
+
+use clap::{Parser, Subcommand};
 use std::error::Error;
-use std::ffi::OsString;
-use std::io::Write;
 use std::path::PathBuf;
-use std::{env, fs, io};
+use std::{env, io};
 
 /// Extracts hashed Minecraft assets.
 ///
@@ -17,157 +16,61 @@ use std::{env, fs, io};
 /// extracts all those hashed files based on the file path they should have.
 #[derive(Parser)]
 struct ExtractCommand {
-    /// The path to the `.minecraft/assets` directory to extract assets from.
-    ///
-    /// Defaults to the default `.minecraft/assets` folder location on your OS.
-    #[arg(value_name = "ASSETS DIRECTORY")]
-    input_dir: Option<PathBuf>,
-    /// The path to the `assets` directory into which to extract assets.
+    #[command(subcommand)]
+    subcommand: ExtractSubcommand,
+
+    /// The path to the directory into which to extract assets.
     ///
     /// Defaults to the current directory.
-    ///
-    /// Note that this shouldn't be the `minecraft` folder inside `assets`.
     #[arg(short, long = "output", value_name = "DIRECTORY")]
     output_dir: Option<PathBuf>,
-
-    /// The version file in `indexes` to use (without the `.json` suffix).
+    /// Whether to extract the contents directly into the output directory.
     ///
-    /// Defaults to the last file in the `indexes` folder (which is OS- and
-    /// filesystem-dependent).
-    #[arg(short, long, value_name = "VERSION")]
-    index_version: Option<OsString>,
-}
-
-/// Represents the contents of an index file in `.minecraft/assets/indexes`.
-#[derive(Deserialize)]
-struct IndexFile {
-    /// A map of file paths within `assets` and the associated [`Object`].
-    objects: HashMap<PathBuf, Object>,
-}
-
-/// Information about a hashed file.
-#[derive(Deserialize)]
-struct Object {
-    /// The hashed name of the file.
-    #[serde(rename = "hash")]
-    hashed_file_name: String,
-    /// The size of the file in bytes.
-    #[serde(rename = "size")]
-    _size: usize,
-}
-
-impl Object {
-    /// Returns the name of the folder the hashed file is within inside the `objects` folder.
+    /// If this is not set, `assets`/`data` directories will be created in the
+    /// output directory.
     ///
-    /// The name of that folder will be the same as the first two characters of
-    /// [the hashed file's name](#field.hashed_file).
-    pub fn parent_dir(&self) -> &str {
-        &self.hashed_file_name[..2]
+    /// If it is set, the contents of those directories will be placed directly
+    /// into the output directory.
+    ///
+    /// You probably don't want to use this if you're using the jar subcommand
+    /// to extract both `assets` and `data` at the same time, as their contents
+    /// would get mixed up.
+    #[arg(long)]
+    ignore_top_level: bool,
+}
+
+#[derive(Subcommand)]
+enum ExtractSubcommand {
+    /// Extracts hashed Minecraft assets (e.g. from `.minecraft/assets/`).
+    Hashed(hashed::HashedSubcommand),
+    /// Extracts non-hashed Minecraft `assets`, or `data`, from a Minecraft jar (or zip) file.
+    Jar(jar::JarSubcommand),
+}
+
+impl ExtractSubcommand {
+    fn execute(self, output_dir: PathBuf, ignore_top_level: bool) -> io::Result<()> {
+        match self {
+            Self::Hashed(subcommand) => subcommand.execute(output_dir, ignore_top_level),
+            Self::Jar(subcommand) => subcommand.execute(output_dir, ignore_top_level),
+        }
     }
-
-    /// Returns the path to the hashed file within the `objects` folder.
-    pub fn hashed_file_path(&self) -> PathBuf {
-        [self.parent_dir(), &self.hashed_file_name].iter().collect()
-    }
-}
-
-// Windows
-/// Returns the default location of the `.minecraft` directory.
-#[cfg(target_os = "windows")]
-fn minecraft_dir() -> Option<PathBuf> {
-    dirs::data_dir()
-        .map(|path| path.join(".minecraft"))
-        .filter(|path| path.is_dir())
-}
-
-// Mac
-/// Returns the default location of the `minecraft` directory.
-#[cfg(target_os = "macos")]
-fn minecraft_dir() -> Option<PathBuf> {
-    dirs::data_dir()
-        .map(|path| path.join("minecraft"))
-        .filter(|path| path.is_dir())
-}
-
-// Linux
-/// Returns the default location of the `.minecraft` directory.
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
-fn minecraft_dir() -> Option<PathBuf> {
-    dirs::home_dir()
-        .map(|path| path.join(".minecraft"))
-        .filter(|path| path.is_dir())
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
     let ExtractCommand {
-        input_dir,
+        subcommand,
         output_dir,
-        index_version,
+        ignore_top_level,
     } = ExtractCommand::parse();
 
-    let input_dir = input_dir
-        .or_else(|| minecraft_dir().map(|path| path.join("assets")))
-        .filter(|path| path.is_dir())
-        .expect("No input directory found");
-    let output_dir = output_dir
-        .or_else(|| env::current_dir().ok())
-        .filter(|path| path.is_dir())
-        .expect("No output directory found");
-
-    let indexes_dir = input_dir.join("indexes");
-    let objects_dir = input_dir.join("objects");
-
-    let index: IndexFile = index_version
-        .map(|mut version| {
-            version.push(".json");
-            version
-        })
-        .or_else(|| {
-            // Use the last version file
-            indexes_dir
-                .read_dir()
-                .expect("Failed to read indexes")
-                .filter_map(Result::ok)
-                .map(|entry| entry.file_name())
-                .last()
-        })
-        .map(|file_name| indexes_dir.join(&file_name))
-        .map(|path| fs::read_to_string(&path).expect("Failed to read index file"))
-        .map(|contents| serde_json::from_str(&contents).expect("Failed to parse index file"))
-        .expect("No index file found");
-    let objects_len = index.objects.len();
-
-    let mut stdout = io::stdout();
-
-    for (i, (file_path, object)) in index.objects.iter().enumerate() {
-        let file_name = file_path.display();
-
-        // Print extraction progress (overwriting the previous progress message)
-        // The cursor position is saved and restored to ensure it doesn't move all over the place.
-        stdout.queue(cursor::SavePosition)?;
-        stdout.write_all(format!("Extracting {}/{objects_len}", i + 1).as_bytes())?;
-        stdout.queue(cursor::RestorePosition)?;
-
-        stdout.flush()?;
-
-        // Read the hashed file
-        match fs::read(objects_dir.join(object.hashed_file_path())) {
-            Ok(contents) => {
-                let output_file = output_dir.join(&file_path);
-
-                // Fill in parent directories of the file, since Windows doesn't do that.
-                if let Some(Err(error)) = output_file.parent().map(fs::create_dir_all) {
-                    eprintln!("Failed to create parent directories for '{file_name}': {error}");
-                }
-
-                // Copy the file contents
-                if let Err(error) = fs::write(output_file, contents) {
-                    eprintln!("Failed to write file '{file_name}': {error}");
-                }
-            }
-
-            Err(error) => eprintln!("Skipping '{file_name}': failed to read hashed file: {error}"),
-        }
+    let output_dir = output_dir.unwrap_or(env::current_dir()?);
+    if output_dir.is_dir() {
+        subcommand.execute(output_dir, ignore_top_level)?;
+    } else {
+        panic!(
+            "'{}' does not exist or is not a directory",
+            output_dir.display()
+        );
     }
 
     Ok(())
