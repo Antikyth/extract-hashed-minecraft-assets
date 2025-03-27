@@ -8,13 +8,12 @@ use crossterm::{terminal, ExecutableCommand};
 use std::path::PathBuf;
 use std::{env, io};
 
-/// Extracts hashed Minecraft assets.
+/// Extracts Minecraft `assets` or `data`.
 ///
-/// Most Minecraft assets are located within a version's jar file (e.g.
-/// `.minecraft/versions/1.20.1.jar`), but certain assets (like sounds or
-/// non-US-English languages) are found in `.minecraft/assets/`, with hashed
-/// file names instead of their file path within Minecraft's assets. This tool
-/// extracts all those hashed files based on the file path they should have.
+/// Most Minecraft assets are located within a version's jar file, while some
+/// (like sounds or non-US-English languages) are found hashed in
+/// `.minecraft/assets/`. This tool can extract `assets` or `data` from either
+/// location.
 #[derive(Parser)]
 struct ExtractCommand {
     #[command(subcommand)]
@@ -69,7 +68,8 @@ fn main() -> io::Result<()> {
         ignore_top_level,
     } = ExtractCommand::parse();
 
-    let output_dir = output_dir.unwrap_or(env::current_dir()?);
+    let output_dir = output_dir.map(Ok).unwrap_or_else(|| env::current_dir())?;
+
     if output_dir.is_dir() {
         let result = subcommand.execute(output_dir, ignore_top_level);
 
