@@ -358,7 +358,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "extract-hashed-minecraft-assets"
+name = "extract-minecraft-assets"
 version = "0.1.0"
 dependencies = [
  "clap",
