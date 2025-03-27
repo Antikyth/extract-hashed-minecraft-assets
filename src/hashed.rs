@@ -1,6 +1,7 @@
-use crate::util;
+use crate::{util, ExtractCmd};
 use clap::Args;
-use crossterm::{cursor, QueueableCommand};
+use crossterm::terminal::ClearType;
+use crossterm::{cursor, terminal, QueueableCommand};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -77,8 +78,8 @@ impl Object {
     }
 }
 
-impl HashedSubcommand {
-    pub fn execute(self, mut output_dir: PathBuf, ignore_top_level: bool) -> io::Result<()> {
+impl ExtractCmd for HashedSubcommand {
+    fn execute(self, mut output_dir: PathBuf, ignore_top_level: bool) -> io::Result<()> {
         let input_dir = self
             .hashed_assets_dir
             .or_else(|| util::minecraft_dir().map(|path| path.join("assets")))
@@ -127,6 +128,7 @@ impl HashedSubcommand {
             // Print extraction progress (overwriting the previous progress message)
             // The cursor position is saved and restored to ensure it doesn't move all over the place.
             stdout.queue(cursor::SavePosition)?;
+            stdout.queue(terminal::Clear(ClearType::FromCursorDown))?;
             stdout.write_all(format!("Extracting {}/{objects_len}", i + 1).as_bytes())?;
             stdout.queue(cursor::RestorePosition)?;
 

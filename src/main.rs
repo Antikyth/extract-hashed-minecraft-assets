@@ -3,7 +3,8 @@ mod jar;
 mod util;
 
 use clap::{Parser, Subcommand};
-use std::error::Error;
+use crossterm::terminal::ClearType;
+use crossterm::{terminal, ExecutableCommand};
 use std::path::PathBuf;
 use std::{env, io};
 
@@ -47,7 +48,12 @@ enum ExtractSubcommand {
     Jar(jar::JarSubcommand),
 }
 
-impl ExtractSubcommand {
+trait ExtractCmd {
+    /// Executes and consumes the subcommand.
+    fn execute(self, output_dir: PathBuf, ignore_top_level: bool) -> io::Result<()>;
+}
+
+impl ExtractCmd for ExtractSubcommand {
     fn execute(self, output_dir: PathBuf, ignore_top_level: bool) -> io::Result<()> {
         match self {
             Self::Hashed(subcommand) => subcommand.execute(output_dir, ignore_top_level),
@@ -56,7 +62,7 @@ impl ExtractSubcommand {
     }
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> io::Result<()> {
     let ExtractCommand {
         subcommand,
         output_dir,
@@ -65,13 +71,21 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let output_dir = output_dir.unwrap_or(env::current_dir()?);
     if output_dir.is_dir() {
-        subcommand.execute(output_dir, ignore_top_level)?;
+        let result = subcommand.execute(output_dir, ignore_top_level);
+
+        let mut stdout = io::stdout();
+        stdout.execute(terminal::Clear(ClearType::FromCursorDown))?;
+
+        match &result {
+            Ok(_) => println!("Extraction complete"),
+            Err(error) => eprintln!("Extraction failed: {error}"),
+        }
+
+        result
     } else {
         panic!(
             "'{}' does not exist or is not a directory",
             output_dir.display()
         );
     }
-
-    Ok(())
 }
