@@ -6,7 +6,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 #[derive(Args)]
@@ -20,11 +20,8 @@ pub struct HashedSubcommand {
     ///
     /// Can either be a file path to the index file itself, or the name of
     /// that version (e.g. `24` instead of `.minecraft/assets/indexes/24.json`).
-    ///
-    /// Defaults to the last file in the `indexes` folder (as determined by
-    /// your OS / filesystem).
     #[arg(short, long, value_name = "FILE or VERSION", value_parser = IndexVersion::parse)]
-    index: Option<IndexVersion>,
+    index: IndexVersion,
 }
 
 #[derive(Clone)]
@@ -68,13 +65,15 @@ impl Object {
     ///
     /// The name of that folder will be the same as the first two characters of
     /// [the hashed file's name](#field.hashed_file).
-    pub fn parent_dir(&self) -> &str {
-        &self.hashed_file_name[..2]
+    fn parent_dir(&self) -> &Path {
+        Path::new(&self.hashed_file_name[..2])
     }
 
     /// Returns the path to the hashed file within the `objects` folder.
     pub fn hashed_file_path(&self) -> PathBuf {
-        [self.parent_dir(), &self.hashed_file_name].iter().collect()
+        [self.parent_dir(), self.hashed_file_name.as_ref()]
+            .iter()
+            .collect()
     }
 }
 
@@ -97,8 +96,9 @@ impl ExtractCmd for HashedSubcommand {
         let indexes_dir = input_dir.join("indexes");
 
         let index_file = match self.index {
-            Some(IndexVersion::File(file)) => file,
-            Some(IndexVersion::Version(version)) => {
+            IndexVersion::File(file) => file,
+
+            IndexVersion::Version(version) => {
                 let path = indexes_dir.join(format!("{version}.json"));
 
                 if !path.is_file() {
@@ -107,17 +107,9 @@ impl ExtractCmd for HashedSubcommand {
 
                 path
             }
-
-            None => indexes_dir
-                .read_dir()?
-                .filter_map(Result::ok)
-                .map(|entry| entry.path())
-                .last()
-                .unwrap_or_else(|| panic!("no index file found in {}", indexes_dir.display())),
         };
 
-        let index: IndexFile = serde_json::from_str(&fs::read_to_string(index_file)?)
-            .expect("Failed to parse index file");
+        let index: IndexFile = serde_json::from_str(&fs::read_to_string(index_file)?)?;
         let objects_len = index.objects.len();
 
         let mut stdout = io::stdout();
