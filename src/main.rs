@@ -35,7 +35,7 @@ struct ExtractCommand {
     /// You probably don't want to use this if you're using the jar subcommand
     /// to extract both `assets` and `data` at the same time, as their contents
     /// would get mixed up.
-    #[arg(long)]
+    #[arg(long, global = true)]
     ignore_top_level: bool,
 }
 
