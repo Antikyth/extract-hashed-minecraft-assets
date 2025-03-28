@@ -20,24 +20,27 @@ pub struct HashedSubcommand {
     ///
     /// Can either be a file path to the index file itself, or the name of
     /// that version (e.g. `24` instead of `.minecraft/assets/indexes/24.json`).
-    #[arg(short, long, value_name = "FILE or VERSION", value_parser = IndexVersion::parse)]
-    index: IndexVersion,
+    #[arg(short, long, value_name = "FILE or VERSION", value_parser = IndexFileLocation::parse)]
+    index: IndexFileLocation,
 }
 
+/// The location of the index file to use.
 #[derive(Clone)]
-enum IndexVersion {
+enum IndexFileLocation {
+    /// A file path to the index file itself.
     File(PathBuf),
+    /// The name of the index file's version (e.g. `24` instead of `.minecraft/assets/indexes/24.json).
     Version(String),
 }
 
-impl IndexVersion {
+impl IndexFileLocation {
     fn parse(input: &str) -> Result<Self, Infallible> {
-        let path = PathBuf::from(input);
+        let path = Path::new(input);
 
         Ok(if path.is_file() {
-            IndexVersion::File(path)
+            IndexFileLocation::File(path.to_owned())
         } else {
-            IndexVersion::Version(input.to_owned())
+            IndexFileLocation::Version(input.to_owned())
         })
     }
 }
@@ -96,9 +99,9 @@ impl ExtractCmd for HashedSubcommand {
         let indexes_dir = input_dir.join("indexes");
 
         let index_file = match self.index {
-            IndexVersion::File(file) => file,
+            IndexFileLocation::File(file) => file,
 
-            IndexVersion::Version(version) => {
+            IndexFileLocation::Version(version) => {
                 let path = indexes_dir.join(format!("{version}.json"));
 
                 if !path.is_file() {
