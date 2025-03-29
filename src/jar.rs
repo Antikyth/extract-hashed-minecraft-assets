@@ -20,20 +20,19 @@ pub struct JarSubcommand {
     extracted_contents: ExtractedContents,
 }
 
-#[derive(Args)]
+#[derive(Args, Clone)]
 #[group(multiple = true, required = true)]
-#[derive(Clone)]
-struct ExtractedContents {
+pub struct ExtractedContents {
     /// Extract the `assets` folder.
     ///
     /// Can be combined with --data.
-    #[arg(long)]
-    assets: bool,
+    #[arg(short, long)]
+    pub assets: bool,
     /// Extract the `data` folder.
     ///
     /// Can be combined with --assets.
-    #[arg(long)]
-    data: bool,
+    #[arg(short, long)]
+    pub data: bool,
 }
 
 impl ExtractCmd for JarSubcommand {

@@ -26,7 +26,7 @@ pub struct HashedSubcommand {
 
 /// The location of the index file to use.
 #[derive(Clone)]
-enum IndexFileLocation {
+pub enum IndexFileLocation {
     /// A file path to the index file itself.
     File(PathBuf),
     /// The name of the index file's version (e.g. `24` instead of `.minecraft/assets/indexes/24.json).
@@ -34,7 +34,7 @@ enum IndexFileLocation {
 }
 
 impl IndexFileLocation {
-    fn parse(input: &str) -> Result<Self, Infallible> {
+    pub fn parse(input: &str) -> Result<Self, Infallible> {
         let path = Path::new(input);
 
         Ok(if path.is_file() {
@@ -84,7 +84,7 @@ impl ExtractCmd for HashedSubcommand {
     fn execute(self, mut output_dir: PathBuf, ignore_top_level: bool) -> io::Result<()> {
         let input_dir = self
             .hashed_assets_dir
-            .or_else(|| util::minecraft_dir().map(|path| path.join("assets")))
+            .or_else(|| util::hashed_assets_dir())
             .filter(|path| path.is_dir())
             .expect("No input directory found");
 

@@ -1,6 +1,7 @@
 mod hashed;
 mod jar;
 mod util;
+mod version;
 
 use clap::{Parser, Subcommand};
 use crossterm::terminal::ClearType;
@@ -41,10 +42,17 @@ struct ExtractCommand {
 
 #[derive(Subcommand)]
 enum ExtractSubcommand {
-    /// Extracts hashed Minecraft assets (e.g. from `.minecraft/assets/`).
+    /// Extracts hashed Minecraft assets.
+    ///
+    /// The usual location for hashed assets is `.minecraft/assets`.
     Hashed(hashed::HashedSubcommand),
-    /// Extracts non-hashed Minecraft `assets`, or `data`, from a Minecraft jar (or zip) file.
+    /// Extracts non-hashed Minecraft `assets`, or `data`.
+    ///
+    /// `assets` and/or `data` are extracted from a Minecraft version zip archive
+    /// file (usually a `.jar` file in `.minecraft/versions/<version>/<version>.jar`).
     Jar(jar::JarSubcommand),
+    /// Extracts both hashed and non-hashed Minecraft `assets`, or `data`.
+    Version(version::VersionSubcommand),
 }
 
 trait ExtractCmd {
@@ -57,6 +65,7 @@ impl ExtractCmd for ExtractSubcommand {
         match self {
             Self::Hashed(subcommand) => subcommand.execute(output_dir, ignore_top_level),
             Self::Jar(subcommand) => subcommand.execute(output_dir, ignore_top_level),
+            Self::Version(subcommand) => subcommand.execute(output_dir, ignore_top_level),
         }
     }
 }
