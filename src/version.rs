@@ -27,6 +27,7 @@ pub struct VersionSubcommand {
     #[arg(long = "hashed-assets", value_name = "DIRECTORY")]
     hashed_assets_dir: Option<PathBuf>,
 
+    /// Which contents to extract.
     #[command(flatten)]
     extracted_contents: jar::ExtractedContents,
 }
@@ -38,70 +39,97 @@ struct Version {
 }
 
 impl Version {
+    /// Returns a new [`Version`] wrapping `dir`.
     fn new(dir: PathBuf) -> Self {
         Self { dir }
     }
 
-    fn name(&self) -> &OsStr {
-        self.dir.file_name().expect("Version directory has no name")
+    /// The path to the version's directory.
+    fn path(&self) -> &Path {
+        &self.dir
     }
 
+    /// The name of the version directory, [jar file](Version::jar_file), and
+    /// [manifest file](Version::manifest_file).
+    fn name(&self) -> &OsStr {
+        self.path()
+            .file_name()
+            .expect("Version directory has no name")
+    }
+
+    /// The path to the version's jar file.
     fn jar_file(&self) -> PathBuf {
-        let mut path = self.dir.join(self.name());
+        let mut path = self.path().join(self.name());
         path.set_extension("jar");
 
         path
     }
 
+    /// The path to the version's manifest file.
     fn manifest(&self) -> PathBuf {
-        let mut path = self.dir.join(self.name());
+        let mut path = self.path().join(self.name());
         path.set_extension("json");
 
         path
     }
 
+    /// Parses `input` into a [`Version`].
+    ///
+    /// If there is neither a directory at the path specified by `input`, nor as
+    /// a child of the [default `versions` directory location](util::versions_dir),
+    /// an [`InvalidVersion`] error is returned.
     fn parse(input: &str) -> Result<Self, InvalidVersion> {
         let path = Path::new(input);
 
         if path.is_dir() {
             Ok(Self::new(path.to_owned()))
         } else {
-            let path = util::minecraft_dir()
-                .map(|minecraft_dir| {
-                    [&minecraft_dir, Path::new("versions"), path]
-                        .iter()
-                        .collect::<PathBuf>()
-                })
-                .filter(|path| path.is_dir());
-
-            if let Some(path) = path {
+            if let Some(path) = util::versions_dir()
+                .inspect_mut(|dir| dir.push(path))
+                .filter(|path| path.is_dir())
+            {
                 Ok(Self::new(path))
             } else {
-                Err(InvalidVersion(input.to_owned()))
+                Err(InvalidVersion::new(input.to_owned()))
             }
         }
     }
 }
 
+/// Represents an error locating a [version directory](Version) during
+/// [parsing](Version::parse).
 #[derive(Debug)]
-struct InvalidVersion(String);
+pub struct InvalidVersion {
+    pub version: String,
+}
+
+impl InvalidVersion {
+    fn new(version: String) -> Self {
+        Self { version }
+    }
+}
 
 impl Display for InvalidVersion {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let Self(version) = self;
-
         write!(
             f,
-            "invalid version '{version}': no directory exists of that path or name within `minecraft/versions`"
+            "invalid version '{}': no directory exists of that path or name within `minecraft/versions`",
+            self.version
         )
     }
 }
 
 impl Error for InvalidVersion {}
 
+/// Represents the manifest file for a version.
+///
+/// The manifest file has a lot of information: this representation only
+/// includes what is necessary for identifying the hashed assets index.
 #[derive(Deserialize)]
 #[non_exhaustive]
 struct ManifestFile {
+    /// The name of the index file to be found within `.minecraft/assets/indexes/`,
+    /// without the `json` file extension.
     #[serde(rename = "assets")]
     index_version: String,
 }
