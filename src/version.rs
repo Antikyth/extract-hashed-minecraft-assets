@@ -33,7 +33,7 @@ pub struct VersionSubcommand {
 }
 
 /// Represents a directory containing the version `.jar` file and manifest.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 struct Version {
     dir: PathBuf,
 }
@@ -51,26 +51,21 @@ impl Version {
 
     /// The name of the version directory, [jar file](Version::jar_file), and
     /// [manifest file](Version::manifest_file).
-    fn name(&self) -> &OsStr {
+    fn name(&self) -> &str {
         self.path()
             .file_name()
-            .expect("Version directory has no name")
+            .and_then(OsStr::to_str)
+            .expect("Version directory has an invalid name")
     }
 
     /// The path to the version's jar file.
     fn jar_file(&self) -> PathBuf {
-        let mut path = self.path().join(self.name());
-        path.set_extension("jar");
-
-        path
+        self.path().join(format!("{}.jar", self.name()))
     }
 
     /// The path to the version's manifest file.
-    fn manifest(&self) -> PathBuf {
-        let mut path = self.path().join(self.name());
-        path.set_extension("json");
-
-        path
+    fn manifest_file(&self) -> PathBuf {
+        self.path().join(format!("{}.json", self.name()))
     }
 
     /// Parses `input` into a [`Version`].
@@ -113,7 +108,7 @@ impl Display for InvalidVersion {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "invalid version '{}': no directory exists of that path or name within `minecraft/versions`",
+            "invalid version '{}': no directory exists of that path nor name within `minecraft/versions`",
             self.version
         )
     }
@@ -136,27 +131,54 @@ struct ManifestFile {
 
 impl ExtractCmd for VersionSubcommand {
     fn execute(self, output_dir: PathBuf, ignore_top_level: bool) -> io::Result<()> {
+        if !self.extracted_contents.assets && !self.extracted_contents.data {
+            return Ok(());
+        }
+
         let manifest: Option<ManifestFile> = self
             .extracted_contents
             .assets
             .then(|| {
-                serde_json::from_str(&fs::read_to_string(self.version_dir.manifest())?)
+                serde_json::from_str(&fs::read_to_string(self.version_dir.manifest_file())?)
                     .map_err(Into::<io::Error>::into)
             })
             .transpose()?;
-        let index: Option<hashed::IndexFile> = manifest
-            .map(|ManifestFile { index_version }| {
-                self.hashed_assets_dir
-                    .or_else(|| util::hashed_assets_dir())
-                    .inspect_mut(|path| path.push("indexes"))
-                    .inspect_mut(|path| path.push(format!("{index_version}.json")))
-                    .filter(|path| path.is_file())
-                    .expect("No index file for hashed assets found")
-            })
-            .map(|path| {
-                serde_json::from_str(&fs::read_to_string(path)?).map_err(Into::<io::Error>::into)
-            })
-            .transpose()?;
+        let hashed_assets_dir = self
+            .hashed_assets_dir
+            .or_else(|| util::hashed_assets_dir())
+            .filter(|path| path.is_dir())
+            .expect("No hashed assets directory found");
+        let index = manifest.map(|ManifestFile { index_version }| {
+            let mut path: PathBuf = [
+                &hashed_assets_dir,
+                Path::new("indexes"),
+                index_version.as_ref(),
+            ]
+            .iter()
+            .collect();
+            path.set_extension("json");
+
+            assert!(
+                path.is_file(),
+                "No index file for hashed assets found at '{}'",
+                path.display()
+            );
+
+            path
+        });
+
+        let jar = self.version_dir.jar_file();
+        println!(
+            "Extracting {} from {}...",
+            &self.extracted_contents,
+            jar.display()
+        );
+        jar::extract_jar(&jar, &output_dir, self.extracted_contents, ignore_top_level)?;
+
+        if let Some(path) = index {
+            println!("Extracting hashed assets using index {}...", path.display());
+            hashed::extract_hashed_assets(&hashed_assets_dir, output_dir, path, ignore_top_level)?;
+        }
 
         Ok(())
     }

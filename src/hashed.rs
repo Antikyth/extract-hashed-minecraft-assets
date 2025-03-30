@@ -80,24 +80,77 @@ impl Object {
     }
 }
 
+pub fn extract_hashed_assets(
+    hashed_assets_dir: &Path,
+    mut output_dir: PathBuf,
+    index_path: PathBuf,
+    ignore_top_level: bool,
+) -> io::Result<()> {
+    let output_dir = {
+        if !ignore_top_level {
+            output_dir.push("assets");
+        }
+        output_dir
+    };
+
+    let objects_dir = hashed_assets_dir.join("objects");
+
+    let index: IndexFile = serde_json::from_str(&fs::read_to_string(index_path)?)?;
+    let objects_len = index.objects.len();
+
+    let mut stdout = io::stdout();
+
+    for (i, (file_path, object)) in index.objects.iter().enumerate() {
+        let file_name = file_path.display();
+
+        // Print extraction progress (overwriting the previous progress message)
+        // The cursor position is saved and restored to ensure it doesn't move all over the place.
+        stdout.queue(cursor::SavePosition)?;
+        stdout.queue(terminal::Clear(ClearType::FromCursorDown))?;
+        stdout.write_all(
+            format!(
+                "Extracting {file_name} ({}/{objects_len} hashed assets)",
+                i + 1
+            )
+            .as_bytes(),
+        )?;
+        stdout.queue(cursor::RestorePosition)?;
+
+        stdout.flush()?;
+
+        // Read the hashed file
+        match fs::read(objects_dir.join(object.hashed_file_path())) {
+            Ok(contents) => {
+                let output_file = output_dir.join(&file_path);
+
+                // Fill in parent directories of the file, since Windows doesn't do that.
+                if let Some(Err(error)) = output_file.parent().map(fs::create_dir_all) {
+                    eprintln!("Failed to create parent directories for '{file_name}': {error}");
+                }
+
+                // Copy the file contents
+                if let Err(error) = fs::write(output_file, contents) {
+                    eprintln!("Failed to write file '{file_name}': {error}");
+                }
+            }
+
+            Err(error) => {
+                eprintln!("Skipping '{file_name}': failed to read hashed file: {error}")
+            }
+        }
+    }
+
+    Ok(())
+}
+
 impl ExtractCmd for HashedSubcommand {
-    fn execute(self, mut output_dir: PathBuf, ignore_top_level: bool) -> io::Result<()> {
+    fn execute(self, output_dir: PathBuf, ignore_top_level: bool) -> io::Result<()> {
         let input_dir = self
             .hashed_assets_dir
             .or_else(|| util::hashed_assets_dir())
             .filter(|path| path.is_dir())
             .expect("No input directory found");
-
-        let output_dir = {
-            if !ignore_top_level {
-                output_dir.push("assets");
-            }
-            output_dir
-        };
-
-        let objects_dir = input_dir.join("objects");
         let indexes_dir = input_dir.join("indexes");
-
         let index_file = match self.index {
             IndexFileLocation::File(file) => file,
 
@@ -112,45 +165,6 @@ impl ExtractCmd for HashedSubcommand {
             }
         };
 
-        let index: IndexFile = serde_json::from_str(&fs::read_to_string(index_file)?)?;
-        let objects_len = index.objects.len();
-
-        let mut stdout = io::stdout();
-
-        for (i, (file_path, object)) in index.objects.iter().enumerate() {
-            let file_name = file_path.display();
-
-            // Print extraction progress (overwriting the previous progress message)
-            // The cursor position is saved and restored to ensure it doesn't move all over the place.
-            stdout.queue(cursor::SavePosition)?;
-            stdout.queue(terminal::Clear(ClearType::FromCursorDown))?;
-            stdout.write_all(format!("Extracting {}/{objects_len}", i + 1).as_bytes())?;
-            stdout.queue(cursor::RestorePosition)?;
-
-            stdout.flush()?;
-
-            // Read the hashed file
-            match fs::read(objects_dir.join(object.hashed_file_path())) {
-                Ok(contents) => {
-                    let output_file = output_dir.join(&file_path);
-
-                    // Fill in parent directories of the file, since Windows doesn't do that.
-                    if let Some(Err(error)) = output_file.parent().map(fs::create_dir_all) {
-                        eprintln!("Failed to create parent directories for '{file_name}': {error}");
-                    }
-
-                    // Copy the file contents
-                    if let Err(error) = fs::write(output_file, contents) {
-                        eprintln!("Failed to write file '{file_name}': {error}");
-                    }
-                }
-
-                Err(error) => {
-                    eprintln!("Skipping '{file_name}': failed to read hashed file: {error}")
-                }
-            }
-        }
-
-        Ok(())
+        extract_hashed_assets(&input_dir, output_dir, index_file, ignore_top_level)
     }
 }
