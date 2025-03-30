@@ -20,8 +20,8 @@ pub trait OptionExt<T> {
 
 impl<T> OptionExt<T> for Option<T> {
     fn inspect_mut(mut self, f: impl FnOnce(&mut T)) -> Self {
-        if let Some(inner) = &mut self {
-            f(inner);
+        if let Some(x) = &mut self {
+            f(x);
         }
 
         self

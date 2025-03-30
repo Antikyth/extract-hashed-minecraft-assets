@@ -14,7 +14,7 @@ use std::{env, io};
 /// Most Minecraft assets are located within a version's jar file, while some
 /// (like sounds or non-US-English languages) are found hashed in
 /// `.minecraft/assets/`. This tool can extract `assets` or `data` from either
-/// location.
+/// location, or both at the same time.
 #[derive(Parser)]
 struct ExtractCommand {
     #[command(subcommand)]
@@ -23,7 +23,7 @@ struct ExtractCommand {
     /// The path to the directory into which to extract assets.
     ///
     /// Defaults to the current directory.
-    #[arg(short, long = "output", value_name = "DIRECTORY")]
+    #[arg(short, long = "output", value_name = "DIRECTORY", global = true)]
     output_dir: Option<PathBuf>,
     /// Whether to extract the contents directly into the output directory.
     ///
@@ -33,9 +33,8 @@ struct ExtractCommand {
     /// If it is set, the contents of those directories will be placed directly
     /// into the output directory.
     ///
-    /// You probably don't want to use this if you're using the jar subcommand
-    /// to extract both `assets` and `data` at the same time, as their contents
-    /// would get mixed up.
+    /// You probably don't want to use this if you're extracting both `assets`
+    /// and `data` at the same time, as their contents would get mixed up.
     #[arg(long, global = true)]
     ignore_top_level: bool,
 }
